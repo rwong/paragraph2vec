@@ -59,7 +59,7 @@ logger = logging.getLogger(__name__)
 
 try:
     from par2vec.models.par2vec_inner import train_document_dbow, train_document_dm, train_document_dm_concat
-    from gensim.models.word2vec_inner import FAST_VERSION  # blas-adaptation shared from word2vec
+    from par2vec.models.word2vec_inner import FAST_VERSION  # blas-adaptation shared from word2vec
 except:
     # failed... fall back to plain numpy (20-80x slower training than the above)
     FAST_VERSION = -1
