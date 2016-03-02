@@ -11,9 +11,8 @@ import os.path
 
 import numpy as np
 import gensim
-import gensim.models.doc2vec
-from gensim.models import Doc2Vec
-from gensim.models.doc2vec import TaggedDocument
+import par2vec.models.par2vec
+from par2vec.models.par2vec import Doc2Vec, TaggedDocument
 from collections import namedtuple, OrderedDict
 
 import multiprocessing
@@ -60,7 +59,7 @@ with open('data/aclImdb/alldata-id.txt') as alldata:
 train_docs = [doc for doc in alldocs if doc.split == 'train']
 test_docs = [doc for doc in alldocs if doc.split == 'test']
 unsup_docs = [doc for doc in alldocs if doc.split == 'extra']
-doc_list = alldocs[:]  # for reshuffling per pass
+doc_list = alldocs[:]  # For reshuffling per pass
 
 print( '%d docs: %d train-sentiment, %d test-sentiment, %d unsupervised' % \
      ( len(doc_list), len(train_docs), len(test_docs), len(unsup_docs) ))
@@ -69,23 +68,25 @@ print( '%d docs: %d train-sentiment, %d test-sentiment, %d unsupervised' % \
 cores = multiprocessing.cpu_count()
 assert gensim.models.doc2vec.FAST_VERSION > -1, \
        "this will be painfully slow otherwise"
+print( 'Using FAST_VERSION:', gensim.models.doc2vec.FAST_VERSION )
 
 # Following models learn by hierarchical softmax
 simple_models = [
     # PV-DM w/concatenation - window=5 (both sides) approximates
     #     paper's 10-word total window size
-    Doc2Vec( dm=1, dm_concat=1, size=100, window=10, negative=0,
+    Doc2Vec( dm=1, dm_concat=1, size=300, window=10, negative=0,
              hs=1, min_count=2, workers=cores ),
     # PV-DBOW
-    Doc2Vec(dm=0, size=100, negative=0, hs=1, min_count=2, workers=cores),
+    #Doc2Vec(dm=0, size=100, negative=0, hs=1, min_count=2, workers=cores),
     # PV-DM w/average
-    Doc2Vec( dm=1, dm_mean=1, size=100, window=10, negative=0, hs=1,
-             min_count=2, workers=cores ),
+    #Doc2Vec( dm=1, dm_mean=1, size=300, window=10, negative=0, hs=1,
+    #         min_count=2, workers=cores ),
 ]
 
 # Speed setup by sharing results of 1st model's vocabulary scan
 # PV-DM/concat requires one special NULL word so it serves as template
-simple_models[0].build_vocab(alldocs)
+all_train = alldocs[:5]
+simple_models[0].build_vocab(all_train)
 print(simple_models[0])
 for model in simple_models[1:]:
     model.reset_from(simple_models[0])
@@ -100,9 +101,17 @@ alpha_delta = (alpha - min_alpha) / passes
 
 print("START %s" % datetime.datetime.now())
 
-
 # Use infer_vector to obtain paragraph vector on test set
-all_train = (train_docs + unsup_docs)
+# If a word in the paragraph doesn't exist in the vocabulary
+# during inference, the word is ignored.  Another approach
+# uses both test and training set for training, but the paragraph
+# vectors for the test set are still inferred by freezing the
+# rest of the network.  The paragraph vector in the test set
+# is ignored, and the inferred vector is used instead.  This
+# will allow word vectors to be obtained for words that only
+# exist in the test set.  During prediction time, consider
+# shuffling the contexts if only one document can be inferred
+# at a time.
 for epoch in range(passes):
     shuffle(all_train)  # shuffling gets best results
 
