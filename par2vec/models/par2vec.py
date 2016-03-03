@@ -51,7 +51,7 @@ from numpy import zeros, random, sum as np_sum, add as np_add, concatenate, \
     sqrt, newaxis, ndarray, dot, vstack, dtype, divide as np_divide
 
 from gensim import utils, matutils  # utility fnc for pickling, common scipy operations etc
-from gensim.models.word2vec import Word2Vec, Vocab, train_cbow_pair, train_sg_pair, train_batch_sg
+from par2vec.models.word2vec import Word2Vec, Vocab, train_cbow_pair, train_sg_pair, train_batch_sg
 from six.moves import xrange, zip
 from six import string_types, integer_types, itervalues
 
@@ -376,7 +376,7 @@ class DocvecsArray(utils.SaveLoad):
         for i in xrange(length):
             # construct deterministic seed from index AND model seed
             seed = "%d %s" % (model.seed, self.index_to_doctag(i))
-            self.doctag_syn0[i] = model.seeded_vector(seed)
+            self.doctag_syn0[i] = model.seeded_vector(seed, model.vector_size)
 
     def init_sims(self, replace=False):
         """
@@ -588,6 +588,7 @@ class Doc2Vec(Word2Vec):
         self.dm_tag_count = dm_tag_count
         if self.dm and self.dm_concat:
             self.layer1_size = (self.dm_tag_count + (2 * self.window)) * self.vector_size
+            self.layer_sizes[0] = self.layer1_size
         else:
             self.layer1_size = size
         self.docvecs = docvecs or DocvecsArray(docvecs_mapfile)
@@ -684,7 +685,7 @@ class Doc2Vec(Word2Vec):
         Document should be a list of (word) tokens.
         """
         doctag_vectors = empty((1, self.vector_size), dtype=REAL)
-        doctag_vectors[0] = self.seeded_vector(' '.join(doc_words))
+        doctag_vectors[0] = self.seeded_vector(' '.join(doc_words), self.vector_size)
         doctag_locks = ones(1, dtype=REAL)
         doctag_indexes = [0]
 
