@@ -335,6 +335,7 @@ def logist_clsf(datasets, config, batch_size=500):
     for k, v in config.items():
         print('\t', k, ':', v)
 
+    print('Ended early?', done_looping)
     print(('Optimization complete. Best validation score of %f %% '
            'obtained at iteration %i, with test performance %f %%') %
           (best_validation_loss * 100., best_iter + 1, test_score * 100.))
