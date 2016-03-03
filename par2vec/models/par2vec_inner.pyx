@@ -22,13 +22,13 @@ except ImportError:
      # in scipy > 0.15, fblas function has been removed
      import scipy.linalg.blas as fblas
 
-from gensim.models.word2vec_inner cimport bisect_left, random_int32, \
+from word2vec_inner cimport bisect_left, random_int32, \
      scopy, saxpy, sdot, dsdot, snrm2, sscal, \
      REAL_t, EXP_TABLE, \
      our_dot, our_saxpy, \
      our_dot_double, our_dot_float, our_dot_noblas, our_saxpy_noblas
 
-from gensim.models.word2vec import FAST_VERSION
+from word2vec import FAST_VERSION
 
 DEF MAX_DOCUMENT_LEN = 10000
 
