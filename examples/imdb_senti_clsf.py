@@ -366,6 +366,9 @@ models_by_name = OrderedDict( (str(model), model) for model
 alpha, min_alpha, passes = (0.025, 0.001, 15)
 alpha_delta = (alpha - min_alpha) / passes
 
+print('Paragraph vector config...')
+print('    alpha:', alpha, '; min_alpha:', min_alpha, '; passes:', passes)
+
 print("START %s" % datetime.datetime.now())
 
 # Use infer_vector to obtain paragraph vector on test set
@@ -400,13 +403,17 @@ print("END %s" % str(datetime.datetime.now()))
 
 # Prepare data
 infer_steps=5
+infer_alpha=0.1
+print('Inference config...')
+print('    infer_steps:', infer_steps, '; infer_alpha:', infer_alpha)
+
 par2vec_model = simple_models[0]
 senti_train = [( par2vec_model.docvecs[doc.tags[0]], doc.sentiment )
                  for doc in train_docs ]
 senti_test = []
 for doc in test_docs:
     inferred_docvec = par2vec_model.infer_vector(doc.words,
-                          steps=infer_steps, alpha=0.05)
+                          steps=infer_steps, alpha=infer_alpha)
     senti_test.append(( inferred_docvec, doc.sentiment ))
 
 shuffle(senti_test)
