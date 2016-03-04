@@ -1034,27 +1034,30 @@ class Word2Vec(utils.SaveLoad):
             # syn0 are the word vectors
             # syn1 are the weights from the last hidden layer to output
             self.syn1 = zeros((len(self.vocab), self.layer_sizes[-1]), dtype=REAL)
-            if not self.sg:
-                # Going to initialize weights according to interval in
-                # http://deeplearning.net/tutorial/mlp.html
-                self.wgts = []
-                for l in xrange(len(self.layer_sizes[:-1])):
-                    fan_in = self.layer_sizes[l + 1]
-                    fan_out = self.layer_sizes[l]
-                    seed_str = "layer" + str(l) + "fanIn" + str(self.layer_sizes[l]) + \
-                               "fanOut" + str(self.layer_sizes[l + 1])
-                    wgt = numpy.asarray(
-                        random.RandomState(self.hashfxn(seed_str) & 0xffffffff).uniform(
-                            low=-4.*numpy.sqrt(6. / (fan_in + fan_out)),
-                            high=4*numpy.sqrt(6. / (fan_in + fan_out)),
-                            size=(fan_in, fan_out)
-                        ),
-                        dtype=REAL
-                    )
-                    self.wgts.append(wgt)
+
 
         if self.negative:
             self.syn1neg = zeros((len(self.vocab), self.layer1_size), dtype=REAL)
+
+        if not self.sg:
+            # Going to initialize weights according to interval in
+            # http://deeplearning.net/tutorial/mlp.html
+            self.wgts = []
+            for l in xrange(len(self.layer_sizes[:-1])):
+                fan_in = self.layer_sizes[l + 1]
+                fan_out = self.layer_sizes[l]
+                seed_str = "layer" + str(l) + "fanIn" + str(self.layer_sizes[l]) + \
+                           "fanOut" + str(self.layer_sizes[l + 1])
+                wgt = numpy.asarray(
+                    random.RandomState(self.hashfxn(seed_str) & 0xffffffff).uniform(
+                        low=-4.*numpy.sqrt(6. / (fan_in + fan_out)),
+                        high=4*numpy.sqrt(6. / (fan_in + fan_out)),
+                        size=(fan_in, fan_out)
+                    ),
+                    dtype=REAL
+                )
+                self.wgts.append(wgt)
+
         self.syn0norm = None
 
         self.syn0_lockf = ones(len(self.vocab), dtype=REAL)  # zeros suppress learning

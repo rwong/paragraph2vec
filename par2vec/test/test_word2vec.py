@@ -296,7 +296,26 @@ class TestWord2VecModel(unittest.TestCase):
         t_rank = [word for word, score in sims].index('terrorism')
 
         self.assertLess(t_rank, 1600)
-        print('terrorism t_rank given war:', t_rank)
+        war_vec = model['war']
+        sims2 = model.most_similar([war_vec], topn=1501)
+        self.assertTrue('war' in [word for word, score in sims2])
+        self.assertTrue('terrorism' in [word for word, score in sims2])
+
+    def ignore_test_cbow_neg_multi(self):
+        """Test CBOW w/ hierarchical softmax multilayer"""
+        model = word2vec.Word2Vec(sg=0, size=[100, 75], cbow_mean=1, alpha=0.05, window=8, hs=0,
+                                  negative=15, min_count=5, iter=20, workers=1, batch_words=1000)
+
+        # Seems multilayer does not work well in this situation
+
+        model.build_vocab(list_corpus)
+        orig0 = numpy.copy(model.syn0[0])
+        model.train(list_corpus)
+        self.assertFalse((orig0 == model.syn0[1]).all())  # vector should vary after training
+        sims = model.most_similar('war', topn=len(model.index2word))
+        t_rank = [word for word, score in sims].index('terrorism')
+
+        self.assertLess(t_rank, 1600)
         war_vec = model['war']
         sims2 = model.most_similar([war_vec], topn=1501)
         self.assertTrue('war' in [word for word, score in sims2])

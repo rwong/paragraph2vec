@@ -264,12 +264,14 @@ cdef unsigned long long fast_sentence_cbow_neg(
     const int negative, np.uint32_t *cum_table, unsigned long long cum_table_len, int codelens[MAX_SENTENCE_LEN],
     REAL_t *neu1,  REAL_t *syn0, REAL_t *syn1neg, const int size,
     const np.uint32_t indexes[MAX_SENTENCE_LEN], const REAL_t alpha, REAL_t *work,
-    int i, int j, int k, int cbow_mean, unsigned long long next_random, REAL_t *word_locks) nogil:
+    int i, int j, int k, int cbow_mean, unsigned long long next_random, REAL_t *word_locks,
+    int num_layers, int layer_sizes[MAX_LAYERS], REAL_t *inner_layers[MAX_LAYERS - 1],
+    int max_layer_size, int num_hidden_wgts, REAL_t *wgts[MAX_LAYERS - 1] ) nogil:
 
     cdef long long a
     cdef long long row2
     cdef unsigned long long modulo = 281474976710655ULL
-    cdef REAL_t f, g, count, inv_count = 1.0, label
+    cdef REAL_t f, g, ga, count, inv_count = 1.0, label
     cdef np.uint32_t target_index, word_index
     cdef int d, m
 
@@ -288,8 +290,29 @@ cdef unsigned long long fast_sentence_cbow_neg(
     if cbow_mean:
         sscal(&size, &inv_count, neu1, &ONE)  # (does this need BLAS-variants like saxpy?)
 
-    memset(work, 0, size * cython.sizeof(REAL_t))
+    # neu1 is the hidden "input" layer, compute intermediate layers
+    cdef REAL_t *wgt_row,
+    cdef REAL_t *last_layer = neu1
+    cdef int l, r, last_size = size
 
+    for l in range(num_hidden_wgts):
+        for r in range(layer_sizes[l + 1]):
+            wgt_row = &wgts[l][layer_sizes[l] * r]
+            f = our_dot(&layer_sizes[l], last_layer, &ONE, wgt_row, &ONE)
+            # Linear hidden units
+            inner_layers[l][r] = f
+            # Nonlinear hidden units
+            #if f <= -MAX_EXP:
+            #    inner_layers[l][r] = 0.
+            #elif f >= MAX_EXP:
+            #    inner_layers[l][r] = ONEF
+            #else:
+            #    f = EXP_TABLE[<int>((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))]
+            #    inner_layers[l][r] = f
+        last_layer = inner_layers[l]
+        last_size = layer_sizes[l + 1]
+
+    memset(work, 0, max_layer_size * cython.sizeof(REAL_t))
     for d in range(negative+1):
         if d == 0:
             target_index = word_index
@@ -301,14 +324,36 @@ cdef unsigned long long fast_sentence_cbow_neg(
                 continue
             label = <REAL_t>0.0
 
-        row2 = target_index * size
-        f = our_dot(&size, neu1, &ONE, &syn1neg[row2], &ONE)
+        row2 = target_index * last_size
+        f = our_dot(&last_size, last_layer, &ONE, &syn1neg[row2], &ONE)
         if f <= -MAX_EXP or f >= MAX_EXP:
             continue
         f = EXP_TABLE[<int>((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))]
-        g = (label - f) * alpha
-        our_saxpy(&size, &g, &syn1neg[row2], &ONE, work, &ONE)
-        our_saxpy(&size, &g, neu1, &ONE, &syn1neg[row2], &ONE)
+        g = (label - f)
+        ga = g * alpha
+        our_saxpy(&last_size, &g, &syn1neg[row2], &ONE, work, &ONE)
+        our_saxpy(&last_size, &ga, last_layer, &ONE, &syn1neg[row2], &ONE)
+
+    # Using layers as work space, learn wgts from inner(l-1) -> inner(l)
+    l = num_hidden_wgts - 1
+    for m in range(num_hidden_wgts):
+        # Nonlinear hidden units; comment out if using linear hidden units
+        #for r in range(layer_sizes[l + 1]):
+        #    work[r] *= inner_layers[l][r] * (ONEF - inner_layers[l][r])
+
+        # Copy work space over to layer work space (slow?)
+        memset(inner_layers[l], 0, layer_sizes[l + 1] * cython.sizeof(REAL_t))
+        our_saxpy(&layer_sizes[l + 1], &ONEF, work, &ONE, inner_layers[l], &ONE)
+        memset(work, 0, max_layer_size * cython.sizeof(REAL_t))
+        last_layer = neu1 if l == 0 else inner_layers[l - 1]
+        for r in range(layer_sizes[l + 1]):
+            # Work space contains errors propagated from hidden(l) to hidden(l-1)
+            g = inner_layers[l][r]
+            our_saxpy(&layer_sizes[l], &g, &wgts[l][r], &ONE, work, &ONE)
+            # Update weights
+            ga = g * alpha
+            our_saxpy(&layer_sizes[l], &ga, last_layer, &ONE, &wgts[l][r], &ONE)
+        l -= 1
 
     if not cbow_mean:  # divide error over summed window vectors
         sscal(&size, &inv_count, work, &ONE)  # (does this need BLAS-variants like saxpy?)
@@ -317,7 +362,8 @@ cdef unsigned long long fast_sentence_cbow_neg(
         if m == i:
             continue
         else:
-            our_saxpy(&size, &word_locks[indexes[m]], work, &ONE, &syn0[indexes[m]*size], &ONE)
+            ga = word_locks[indexes[m]] * alpha
+            our_saxpy(&size, &ga, work, &ONE, &syn0[indexes[m]*size], &ONE)
 
     return next_random
 
@@ -471,14 +517,6 @@ def train_batch_cbow(model, sentences, alpha, _work, _neu1):
 
     if hs:
         syn1 = <REAL_t *>(np.PyArray_DATA(model.syn1))
-        num_layers = len(model.layer_sizes)
-        for l in xrange(num_layers):
-            layer_sizes[l] = model.layer_sizes[l]
-
-        num_hidden_wgts = len(model.wgts)
-        for l in xrange(num_hidden_wgts):
-            wgts[l] = <REAL_t *>(np.PyArray_DATA(model.wgts[l]))
-            inner_layers[l] = <REAL_t *>(PyMem_Malloc(cython.sizeof(REAL_t) * layer_sizes[l + 1]))
 
     if negative:
         syn1neg = <REAL_t *>(np.PyArray_DATA(model.syn1neg))
@@ -486,6 +524,15 @@ def train_batch_cbow(model, sentences, alpha, _work, _neu1):
         cum_table_len = len(model.cum_table)
     if negative or sample:
         next_random = (2**24) * model.random.randint(0, 2**24) + model.random.randint(0, 2**24)
+
+    num_layers = len(model.layer_sizes)
+    for l in xrange(num_layers):
+        layer_sizes[l] = model.layer_sizes[l]
+
+    num_hidden_wgts = len(model.wgts)
+    for l in xrange(num_hidden_wgts):
+        wgts[l] = <REAL_t *>(np.PyArray_DATA(model.wgts[l]))
+        inner_layers[l] = <REAL_t *>(PyMem_Malloc(cython.sizeof(REAL_t) * layer_sizes[l + 1]))
 
     # convert Python structures to primitive types, so we can release the GIL
     work = <REAL_t *>np.PyArray_DATA(_work)
@@ -541,7 +588,8 @@ def train_batch_cbow(model, sentences, alpha, _work, _neu1):
                     fast_sentence_cbow_hs(points[i], codes[i], codelens, neu1, syn0, syn1, size, indexes, _alpha, work, i, j, k, cbow_mean, word_locks,
                         num_layers, layer_sizes, inner_layers, max_layer_size, num_hidden_wgts, wgts)
                 if negative:
-                    next_random = fast_sentence_cbow_neg(negative, cum_table, cum_table_len, codelens, neu1, syn0, syn1neg, size, indexes, _alpha, work, i, j, k, cbow_mean, next_random, word_locks)
+                    next_random = fast_sentence_cbow_neg(negative, cum_table, cum_table_len, codelens, neu1, syn0, syn1neg, size, indexes, _alpha, work, i, j, k, cbow_mean, next_random, word_locks,
+                                      num_layers, layer_sizes, inner_layers, max_layer_size, num_hidden_wgts, wgts)
 
     # Free inner layers
     for l in xrange(num_hidden_wgts):
