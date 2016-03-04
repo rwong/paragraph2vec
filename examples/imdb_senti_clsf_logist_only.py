@@ -90,7 +90,7 @@ def load_imdb_dataset(dpath):
     alldocs = [ ]
     # [Pos, Neg, Pos, Neg, N/A, ..., N/A]
     sentiment_labels = [1.0, 0.0, 1.0, 0.0, None, None, None, None]
-    with open('data/aclImdb/alldata-id.txt') as alldata:
+    with open(dpath, 'r') as alldata:
         for line_no, line in enumerate(alldata):
             # First token of each line is line number
             tokens = gensim.utils.to_unicode(line).split()
