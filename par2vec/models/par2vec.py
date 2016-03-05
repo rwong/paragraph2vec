@@ -590,7 +590,7 @@ class Doc2Vec(Word2Vec):
             self.layer1_size = (self.dm_tag_count + (2 * self.window)) * self.vector_size
             self.layer_sizes[0] = self.layer1_size
         else:
-            self.layer1_size = size
+            self.layer1_size = self.layer_sizes[0]
         self.docvecs = docvecs or DocvecsArray(docvecs_mapfile)
         self.comment = comment
         if documents is not None:
@@ -689,7 +689,7 @@ class Doc2Vec(Word2Vec):
         doctag_locks = ones(1, dtype=REAL)
         doctag_indexes = [0]
 
-        work = zeros(self.layer1_size, dtype=REAL)
+        work = zeros(max(self.layer_sizes), dtype=REAL)
         if not self.sg:
             neu1 = matutils.zeros_aligned(self.layer1_size, dtype=REAL)
 
@@ -736,7 +736,7 @@ class Doc2Vec(Word2Vec):
                     segments.append('dm/m')
                 else:
                     segments.append('dm/s')
-        segments.append('d%d' % self.vector_size)  # dimensions
+        segments.append('d' + str(self.layer_sizes))  # dimensions
         if self.negative:
             segments.append('n%d' % self.negative)  # negative samples
         if self.hs:

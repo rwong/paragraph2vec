@@ -36,6 +36,9 @@ from contextlib import contextmanager
 from timeit import default_timer
 import time, datetime
 
+SentimentDocument = namedtuple( 'SentimentDocument',
+                                'words tags split sentiment' )
+
 @contextmanager
 def elapsed_timer():
     start = default_timer()
@@ -51,7 +54,7 @@ def logistic_predictor_from_data(train_targets, train_regressors):
     return predictor
 
 def error_rate_for_model(test_model, train_set, test_set, infer=False,
-    infer_steps=3, infer_alpha=0.1, infer_subsample=1.0):
+    infer_set=None):
     """Report error rate on test_doc sentiments, using
     supplied model and train_docs"""
 
@@ -63,15 +66,18 @@ def error_rate_for_model(test_model, train_set, test_set, infer=False,
 
     test_data = test_set
     if infer:
-        if infer_subsample < 1.0:
-            test_data = sample(test_data,
-                               int(infer_subsample * len(test_data)))
-        test_regressors = [test_model.infer_vector(doc.words,
-                               steps=infer_steps, alpha=infer_alpha)
-                           for doc in test_data]
+        #if infer_subsample < 1.0:
+        #    test_data = sample(test_data,
+        #                       int(infer_subsample * len(test_data)))
+        #test_regressors = [test_model.infer_vector(doc.words,
+        #                       steps=infer_steps, alpha=infer_alpha)
+        #                   for doc in test_data]
+        test_data = [SentimentDocument(None, None, None, s)
+                     for (v, s) in infer_set]
+        test_regressors = [v for (v, s) in infer_set]
     else:
         test_regressors = [test_model.docvecs[doc.tags[0]]
-                           for doc in test_docs]
+                           for doc in test_set]
     test_regressors = sm.add_constant(test_regressors)
 
     # predict & evaluate
@@ -81,9 +87,6 @@ def error_rate_for_model(test_model, train_set, test_set, infer=False,
     errors = len(test_predictions) - corrects
     error_rate = float(errors) / len(test_predictions)
     return (error_rate, errors, len(test_predictions), predictor)
-
-SentimentDocument = namedtuple( 'SentimentDocument',
-                                'words tags split sentiment' )
 
 def load_imdb_dataset(dpath):
     # Will hold all docs in original order
@@ -377,6 +380,10 @@ simple_models = [
     # PV-DM w/average
     Doc2Vec(dm=1, dm_mean=1, size=100, window=10, negative=5,
             hs=0, min_count=2, workers=cores),
+    Doc2Vec(dm=1, dm_mean=1, size=[100, 75], window=10, negative=5,
+            hs=0, min_count=2, workers=cores),
+    Doc2Vec(dm=1, dm_mean=1, size=[100, 120], window=10, negative=5,
+            hs=0, min_count=2, workers=cores),
 ]
 
 # Speed setup by sharing results of 1st model's vocabulary scan
@@ -400,6 +407,15 @@ alpha_delta = (alpha - min_alpha) / passes
 
 print('Paragraph vector config...')
 print('    alpha:', alpha, '; min_alpha:', min_alpha, '; passes:', passes)
+
+logist_configs = [
+    { 'learning_rate' : 0.1,
+      'n_epochs'      : 1000,
+      'n_out'         : 2 }
+]
+
+# At the moment, batch_size must be smaller than min(valid, test) sizes
+batch_size = 500
 
 print("START %s" % datetime.datetime.now())
 
@@ -429,7 +445,8 @@ for epoch in range(passes):
         eval_duration = ''
         with elapsed_timer() as eval_elapsed:
             err, err_count, test_count, predictor = \
-                error_rate_for_model(train_model, train_docs, test_docs)
+                error_rate_for_model(train_model, train_docs,
+                                     test_docs)
         eval_duration = '%.1f' % eval_elapsed()
         best_indicator = ' '
         if err <= best_error[name]:
@@ -440,11 +457,31 @@ for epoch in range(passes):
                duration, eval_duration) )
 
         if ((epoch + 1) % 5) == 0 or epoch == 0:
+            infer_steps=3
+            infer_alpha=0.1
+            print('Inference config...')
+            print('    infer_steps:', infer_steps,
+                  '; infer_alpha:', infer_alpha)
+            senti_train = [( train_model.docvecs[doc.tags[0]], doc.sentiment )
+                             for doc in train_docs ]
+            senti_test = []
+            for doc in test_docs:
+                inferred_docvec = train_model.infer_vector(doc.words,
+                                      steps=infer_steps, alpha=infer_alpha)
+                senti_test.append(( inferred_docvec, doc.sentiment ))
+
+            shuffle(senti_test)
+            logist_train = shared_dataset(zip(*senti_train))
+            logist_valid = shared_dataset(
+                               zip(*senti_test[:len(senti_test) // 2]))
+            logist_test = shared_dataset(
+                              zip(*senti_test[len(senti_test) // 2:]))
+
             eval_duration = ''
             with elapsed_timer() as eval_elapsed:
                 infer_err, err_count, test_count, predictor = \
                     error_rate_for_model(train_model, train_docs,
-                    test_docs, infer=True)
+                    test_docs, infer=True, infer_set=senti_test)
             eval_duration = '%.1f' % eval_elapsed()
             best_indicator = ' '
             if infer_err < best_error[name + '_inferred']:
@@ -453,6 +490,13 @@ for epoch in range(passes):
             print( "%s%f : %i passes : %s %ss %ss" %
                  ( best_indicator, infer_err, epoch + 1,
                    name + '_inferred', duration, eval_duration) )
+
+            for config in logist_configs:
+                print(train_model, 'with Theano logist ...')
+                n_in = train_model.vector_size
+                config.update([ ('n_in', n_in) ])
+                logist_clsf([ logist_train, logist_valid, logist_test ],
+                              config, batch_size )
 
     print( 'completed pass %i in %ss at alpha %f with %s' %
            (epoch + 1, duration, alpha, name) )
@@ -464,42 +508,3 @@ for rate, name in sorted((rate, name) for name, rate in best_error.items()):
     print("%f %s" % (rate, name))
 
 # Imdb sentiment classification
-
-# Prepare data
-
-
-logist_configs = [
-    { 'learning_rate' : 0.1,
-      'n_epochs'      : 1000,
-      'n_out'         : 2 }
-]
-
-# At the moment, batch_size must be smaller than min(valid, test) sizes
-batch_size = 500
-
-for config in logist_configs:
-    # Check for all trained models
-    for name, train_model in models_by_name.items():
-        infer_steps=3
-        infer_alpha=0.1
-        print('Inference config...')
-        print('    infer_steps:', infer_steps, '; infer_alpha:', infer_alpha)
-
-        senti_train = [( train_model.docvecs[doc.tags[0]], doc.sentiment )
-                         for doc in train_docs ]
-        senti_test = []
-        for doc in test_docs:
-            inferred_docvec = train_model.infer_vector(doc.words,
-                                  steps=infer_steps, alpha=infer_alpha)
-            senti_test.append(( inferred_docvec, doc.sentiment ))
-
-        shuffle(senti_test)
-        logist_train = shared_dataset(zip(*senti_train))
-        logist_valid = shared_dataset(zip(*senti_test[:len(senti_test) // 2]))
-        logist_test = shared_dataset(zip(*senti_test[len(senti_test) // 2:]))
-
-        print(train_model, 'with Theano logist ...')
-        n_in = train_model.vector_size
-        config.update([ ('n_in', n_in) ])
-        logist_clsf([ logist_train, logist_valid, logist_test ],
-                      config, batch_size )

@@ -1037,7 +1037,7 @@ class Word2Vec(utils.SaveLoad):
 
 
         if self.negative:
-            self.syn1neg = zeros((len(self.vocab), self.layer1_size), dtype=REAL)
+            self.syn1neg = zeros((len(self.vocab), self.layer_sizes[-1]), dtype=REAL)
 
         if not self.sg:
             # Going to initialize weights according to interval in

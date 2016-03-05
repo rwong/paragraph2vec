@@ -170,6 +170,34 @@ class TestDoc2VecModel(unittest.TestCase):
         model2 = par2vec.Doc2Vec(corpus, size=100, min_count=2, iter=20)
         self.models_equal(model, model2)
 
+    def test_training_multi(self):
+        """Test par2vec training."""
+        corpus = DocsLeeCorpus()
+        model = par2vec.Doc2Vec(size=[100, 75], hs=0, negative=10, min_count=2, iter=20)
+        model.build_vocab(corpus)
+        self.assertEqual(model.docvecs.doctag_syn0.shape, (300, 100))
+        model.train(corpus)
+
+        #self.model_sanity(model)
+
+        # build vocab and train in one step; must be the same as above
+        model2 = par2vec.Doc2Vec(corpus, size=[100, 75], hs=0, negative=10, min_count=2, iter=20)
+        self.models_equal(model, model2)
+
+    def test_training_multi_v2(self):
+        """Test par2vec training."""
+        corpus = DocsLeeCorpus()
+        model = par2vec.Doc2Vec(size=[75, 100], hs=0, negative=10, min_count=2, iter=20)
+        model.build_vocab(corpus)
+        self.assertEqual(model.docvecs.doctag_syn0.shape, (300, 75))
+        model.train(corpus)
+
+        #self.model_sanity(model)
+
+        # build vocab and train in one step; must be the same as above
+        model2 = par2vec.Doc2Vec(corpus, size=[75, 100], hs=0, negative=10, min_count=2, iter=20)
+        self.models_equal(model, model2)
+
     def test_dbow_hs(self):
         """Test DBOW par2vec training."""
         model = par2vec.Doc2Vec(list_corpus, dm=0, hs=1, negative=0, min_count=2, iter=20)
@@ -209,6 +237,12 @@ class TestDoc2VecModel(unittest.TestCase):
         model = par2vec.Doc2Vec(list_corpus, dm=1, dm_mean=0, size=24, window=4, hs=0, negative=10,
                                 alpha=0.05, min_count=2, iter=20)
         self.model_sanity(model)
+
+    def test_dms_neg_multi(self):
+        """Test DM/sum par2vec training."""
+        # Just test the training, since model likely fails sanity
+        model = par2vec.Doc2Vec(list_corpus, dm=1, dm_mean=0, size=24, window=4, hs=0, negative=10,
+                                alpha=0.05, min_count=2, iter=20)
 
     def test_dmc_neg(self):
         """Test DM/concatenate par2vec training."""
