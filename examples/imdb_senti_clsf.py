@@ -510,7 +510,7 @@ for epoch in range(passes):
             if normalize_data:
                 logist_train[0] = norm_data(np.asarray(logist_train[0],
                                                        dtype=np.float64))
-                logist_valid[0] = norm_data(np.asarray(logist_train[0],
+                logist_valid[0] = norm_data(np.asarray(logist_valid[0],
                                                        dtype=np.float64))
                 logist_test[0] = norm_data(np.asarray(logist_test[0],
                                                       dtype=np.float64))
