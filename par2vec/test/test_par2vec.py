@@ -326,6 +326,7 @@ class ConcatenatedDoc2Vec(object):
     """
     def __init__(self, models):
         self.models = models
+        self.vector_size = sum([ m.vector_size for m in self.models ])
         if hasattr(models[0], 'docvecs'):
             self.docvecs = ConcatenatedDocvecs([model.docvecs for model in models])
 
@@ -338,6 +339,8 @@ class ConcatenatedDoc2Vec(object):
     def train(self, ignored):
         pass  # train subcomponents individually
 
+    def __str__(self):
+        return "ConcatenatedDoc2Vec[" + "".join(map(lambda m: str(m), self.models)) + "]"
 
 class ConcatenatedDocvecs(object):
     def __init__(self, models):

@@ -16,6 +16,7 @@ import numpy as np
 import gensim
 import par2vec.models.par2vec
 from par2vec.models.par2vec import Doc2Vec, TaggedDocument
+from par2vec.test.test_par2vec import ConcatenatedDoc2Vec
 from collections import namedtuple, OrderedDict
 
 from collections import defaultdict
@@ -399,6 +400,11 @@ for model in simple_models[1:]:
 models_by_name = OrderedDict( (str(model), model) for model
                               in simple_models )
 
+models_by_name['dbow+dmm'] = ConcatenatedDoc2Vec([simple_models[1],
+                                                  simple_models[2]])
+models_by_name['dbow+dmc'] = ConcatenatedDoc2Vec([simple_models[1],
+                                                  simple_models[0]])
+
 # Include all evaluation code from tutorial
 best_error = defaultdict(lambda :1.0)
 
@@ -457,7 +463,7 @@ for epoch in range(passes):
                duration, eval_duration) )
 
         if ((epoch + 1) % 5) == 0 or epoch == 0:
-            infer_steps=3
+            infer_steps=5
             infer_alpha=0.1
             print('Inference config...')
             print('    infer_steps:', infer_steps,
