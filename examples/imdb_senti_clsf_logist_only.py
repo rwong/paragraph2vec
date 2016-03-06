@@ -109,6 +109,13 @@ def load_imdb_dataset(dpath):
 
     return alldocs
 
+def norm_data(data_inputs):
+    # data_inputs should be numpy arrays
+    # Normalize by (x - mean) / dev
+    # If theano 0.7.1 present, can use
+    # https://github.com/Theano/Theano/blob/master/theano/tensor/nnet/bn.py
+    return (data_inputs - data_inputs.mean(axis=0)) / data_inputs.std(axis=0)
+
 def shared_dataset(data_xy, borrow=True):
     # Function body from theano tutorial
 
@@ -264,7 +271,7 @@ def logist_clsf(datasets, config, batch_size=500):
     # Early-stopping parameters
 
     # Look as this many examples regardless
-    patience = 5000
+    patience = train_set_x.get_value(borrow=True).shape[0]
     patience_increase = 2  # wait this much longer when a new best is
                            # found
     improvement_threshold = 0.995  # a relative improvement of this much is
@@ -421,7 +428,8 @@ logist_configs = [
 ]
 
 # At the moment, batch_size must be smaller than min(valid, test) sizes
-batch_size = 500
+batch_size = 50
+normalize_data = True
 
 print("START %s" % datetime.datetime.now())
 
@@ -477,11 +485,23 @@ for epoch in range(passes):
                 senti_test.append(( inferred_docvec, doc.sentiment ))
 
             shuffle(senti_test)
-            logist_train = shared_dataset(zip(*senti_train))
-            logist_valid = shared_dataset(
-                               zip(*senti_test[:len(senti_test) // 2]))
-            logist_test = shared_dataset(
-                              zip(*senti_test[len(senti_test) // 2:]))
+
+            logist_train = list(zip(*senti_train))
+            logist_valid = list(zip(*senti_test[:len(senti_test) // 2]))
+            logist_test = list(zip(*senti_test[len(senti_test) // 2:]))
+
+            # Data normalization
+            if normalize_data:
+                logist_train[0] = norm_data(np.asarray(logist_train[0],
+                                                       dtype=np.float64))
+                logist_valid[0] = norm_data(np.asarray(logist_train[0],
+                                                       dtype=np.float64))
+                logist_test[0] = norm_data(np.asarray(logist_test[0],
+                                                      dtype=np.float64))
+
+            logist_train = shared_dataset(logist_train)
+            logist_valid = shared_dataset(logist_valid)
+            logist_test = shared_dataset(logist_test)
 
             eval_duration = ''
             with elapsed_timer() as eval_elapsed:
