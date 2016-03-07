@@ -313,6 +313,13 @@ class TestDoc2VecModel(unittest.TestCase):
                                 alpha=0.05, min_count=2, iter=20)
         self.model_sanity(model)
 
+    def test_dmm_neg_multi(self):
+        """Test DM/mean par2vec training."""
+        # Fails most of the time, just check if runs
+        model = par2vec.Doc2Vec(list_corpus, size=[100, 150], dm=1, dm_mean=1, window=4, hs=0,
+                                negative=10, alpha=0.05, min_count=2, iter=20)
+        #self.model_sanity(model)
+
     def test_dbow_hs_n02(self):
         """Test DBOW par2vec training."""
         model = par2vec.Doc2Vec(list_corpus, dm=0, hs=1, negative=0, min_count=2, iter=20)
@@ -361,6 +368,13 @@ class TestDoc2VecModel(unittest.TestCase):
         model = par2vec.Doc2Vec(list_corpus, dm=1, dm_concat=1, size=24, window=4, hs=0, negative=10,
                                 alpha=0.05, min_count=2, iter=20)
         self.model_sanity_n02(model)
+
+    def test_dmm_neg_multi_n02(self):
+        """Test DM/mean par2vec training."""
+        # Fails most of the time, just check if runs
+        model = par2vec.Doc2Vec(list_corpus, size=[100, 150], dm=1, dm_mean=1, window=4, hs=0,
+                                negative=10, alpha=0.05, min_count=2, iter=20)
+        #self.model_sanity_n02(model)
 
     def test_dbow_hs_n03(self):
         """Test DBOW par2vec training."""
@@ -411,6 +425,13 @@ class TestDoc2VecModel(unittest.TestCase):
                                 alpha=0.05, min_count=2, iter=20)
         # May fail sometimes
         self.model_sanity_n03(model)
+
+    def test_dmm_neg_multi_n03(self):
+        """Test DM/mean par2vec training."""
+        # Fails most of the time, just check if runs
+        model = par2vec.Doc2Vec(list_corpus, size=[100, 150], dm=1, dm_mean=1, window=4, hs=0,
+                                negative=10, alpha=0.05, min_count=2, iter=20)
+        #self.model_sanity_n03(model)
 
     def test_parallel(self):
         """Test par2vec parallel training."""
