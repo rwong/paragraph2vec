@@ -297,7 +297,7 @@ class TestWord2VecModel(unittest.TestCase):
         # Seems multilayer does not work well in this situation
         # Just train to see if executes
 
-    def test_cbow_hs_multi_v2(self):
+    def test_cbow_hs_multi_n02(self):
         """Test CBOW w/ hierarchical softmax multilayer"""
         model = word2vec.Word2Vec(sg=0, size=[75, 100], cbow_mean=1, alpha=0.05, window=8, hs=1,
                                   negative=0, min_count=5, iter=20, workers=1, batch_words=1000)
@@ -305,7 +305,7 @@ class TestWord2VecModel(unittest.TestCase):
         # Seems multilayer does not work well in this situation
         # Just train to see if executes
 
-    def test_cbow_neg_multi_v2(self):
+    def test_cbow_neg_multi_n02(self):
         """Test CBOW w/ hierarchical softmax multilayer"""
         model = word2vec.Word2Vec(sg=0, size=[75, 100], cbow_mean=1, alpha=0.05, window=8, hs=0,
                                   negative=15, min_count=5, iter=20, workers=1, batch_words=1000)
