@@ -241,17 +241,42 @@ cdef void fast_document_dmc_hs(
 cdef unsigned long long fast_document_dmc_neg(
     const int negative, np.uint32_t *cum_table, unsigned long long cum_table_len, unsigned long long next_random,
     REAL_t *neu1, REAL_t *syn1neg, const int predict_word_index, const REAL_t alpha, REAL_t *work,
-    const int layer1_size, const int vector_size, int learn_hidden) nogil:
+    const int layer1_size, const int vector_size, int learn_hidden,
+    int num_layers, int layer_sizes[MAX_LAYERS], REAL_t *inner_layers[MAX_LAYERS - 1],
+    int max_layer_size, int num_hidden_wgts, REAL_t *wgts[MAX_LAYERS - 1] ) nogil:
 
     cdef long long a
     cdef long long row2
     cdef unsigned long long modulo = 281474976710655ULL
-    cdef REAL_t f, g, label
+    cdef REAL_t f, g, ga, label
     cdef np.uint32_t target_index
     cdef int d, m
 
+    # neu1 is the hidden "input" layer, compute intermediate layers
+    cdef REAL_t *wgt_row,
+    cdef REAL_t *last_layer = neu1
+    cdef int l, r, last_size = layer1_size
+
+    for l in range(num_hidden_wgts):
+        for r in range(layer_sizes[l + 1]):
+            wgt_row = &wgts[l][layer_sizes[l] * r]
+            f = our_dot(&layer_sizes[l], last_layer, &ONE, wgt_row, &ONE)
+            # Linear hidden units
+            inner_layers[l][r] = f
+            # Nonlinear hidden units
+            #if f <= -MAX_EXP:
+            #    inner_layers[l][r] = 0.
+            #elif f >= MAX_EXP:
+            #    inner_layers[l][r] = ONEF
+            #else:
+            #    f = EXP_TABLE[<int>((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))]
+            #    inner_layers[l][r] = f
+        last_layer = inner_layers[l]
+        last_size = layer_sizes[l + 1]
+
     # l1 already composed by caller, passed in as neu1
     # work accumulates net l1 error; eventually applied by caller
+    # work already zeroed out by caller
     for d in range(negative+1):
         if d == 0:
             target_index = predict_word_index
@@ -263,15 +288,37 @@ cdef unsigned long long fast_document_dmc_neg(
                 continue
             label = <REAL_t>0.0
 
-        row2 = target_index * layer1_size
-        f = our_dot(&layer1_size, neu1, &ONE, &syn1neg[row2], &ONE)
+        row2 = target_index * last_size
+        f = our_dot(&last_size, last_layer, &ONE, &syn1neg[row2], &ONE)
         if f <= -MAX_EXP or f >= MAX_EXP:
             continue
         f = EXP_TABLE[<int>((f + MAX_EXP) * (EXP_TABLE_SIZE / MAX_EXP / 2))]
-        g = (label - f) * alpha
-        our_saxpy(&layer1_size, &g, &syn1neg[row2], &ONE, work, &ONE)
+        g = (label - f)
+        ga = g * alpha
+        our_saxpy(&last_size, &g, &syn1neg[row2], &ONE, work, &ONE)
         if learn_hidden:
-            our_saxpy(&layer1_size, &g, neu1, &ONE, &syn1neg[row2], &ONE)
+            our_saxpy(&last_size, &ga, last_layer, &ONE, &syn1neg[row2], &ONE)
+
+    # Using layers as work space, learn wgts from inner(l-1) -> inner(l)
+    l = num_hidden_wgts - 1
+    for m in range(num_hidden_wgts):
+        # Nonlinear hidden units; comment out if using linear hidden units
+        #for r in range(layer_sizes[l + 1]):
+        #    work[r] *= inner_layers[l][r] * (ONEF - inner_layers[l][r])
+
+        # Copy work space over to layer work space (slow?)
+        memset(inner_layers[l], 0, layer_sizes[l + 1] * cython.sizeof(REAL_t))
+        our_saxpy(&layer_sizes[l + 1], &ONEF, work, &ONE, inner_layers[l], &ONE)
+        memset(work, 0, max_layer_size * cython.sizeof(REAL_t))
+        last_layer = neu1 if l == 0 else inner_layers[l - 1]
+        for r in range(layer_sizes[l + 1]):
+            # Work space contains errors propagated from hidden(l) to hidden(l-1)
+            g = inner_layers[l][r]
+            our_saxpy(&layer_sizes[l], &g, &wgts[l][r], &ONE, work, &ONE)
+            # Update weights
+            ga = g * alpha
+            our_saxpy(&layer_sizes[l], &ga, last_layer, &ONE, &wgts[l][r], &ONE)
+        l -= 1
 
     return next_random
 
@@ -588,7 +635,7 @@ def train_document_dm(model, doc_words, doctag_indexes, alpha, work=None, neu1=N
                     if m == i:
                         continue
                     else:
-                        _ga = _doctag_locks[_doctag_indexes[m]] * _alpha
+                        _ga = _word_locks[indexes[m]] * _alpha
                         our_saxpy(&size, &_ga, _work, &ONE,
                                   &_word_vectors[indexes[m] * size], &ONE)
 
@@ -643,6 +690,17 @@ def train_document_dm_concat(model, doc_words, doctag_indexes, alpha, work=None,
     cdef unsigned long long cum_table_len
     cdef unsigned long long next_random
 
+    # Hardcoding max number of layers; should include a check Python file
+    cdef int num_layers, max_layer_size = max(model.layer_sizes)
+    cdef int layer_sizes[MAX_LAYERS]
+
+    # Weights and layers for hierarchical softmax
+    # Excludes syn0 and syn1, wgts are hidden to hidden weights
+    # inner_layer[i] = dot(wgts[i], inner_layers[i-1])
+    cdef int num_hidden_wgts
+    cdef REAL_t *wgts[MAX_LAYERS - 1]
+    cdef REAL_t *inner_layers[MAX_LAYERS - 1]
+
     doctag_len = <int>min(MAX_DOCUMENT_LEN, len(doctag_indexes))
     if doctag_len != expected_doctag_len:
         return 0  # skip doc without expected number of tags
@@ -671,9 +729,18 @@ def train_document_dm_concat(model, doc_words, doctag_indexes, alpha, work=None,
     if negative or sample:
         next_random = (2**24) * model.random.randint(0, 2**24) + model.random.randint(0, 2**24)
 
+    num_layers = len(model.layer_sizes)
+    for l in xrange(num_layers):
+        layer_sizes[l] = model.layer_sizes[l]
+
+    num_hidden_wgts = len(model.wgts)
+    for l in xrange(num_hidden_wgts):
+        wgts[l] = <REAL_t *>(np.PyArray_DATA(model.wgts[l]))
+        inner_layers[l] = <REAL_t *>(PyMem_Malloc(cython.sizeof(REAL_t) * layer_sizes[l + 1]))
+
     # convert Python structures to primitive types, so we can release the GIL
     if work is None:
-       work = zeros(model.layer1_size, dtype=REAL)
+       work = zeros(max_layer_size, dtype=REAL)
     _work = <REAL_t *>np.PyArray_DATA(work)
     if neu1 is None:
        neu1 = zeros(model.layer1_size, dtype=REAL)
@@ -702,6 +769,8 @@ def train_document_dm_concat(model, doc_words, doctag_indexes, alpha, work=None,
         _doctag_indexes[i] = doctag_indexes[i]
         result += 1
 
+    cdef REAL_t _ga
+
     # release GIL & train on the document
     with nogil:
         for i in range(document_len):
@@ -726,7 +795,7 @@ def train_document_dm_concat(model, doc_words, doctag_indexes, alpha, work=None,
             for m in range(2 * window):
                 memcpy(&_neu1[(doctag_len + m) * vector_size], &_word_vectors[window_indexes[m] * vector_size],
                        vector_size * cython.sizeof(REAL_t))
-            memset(_work, 0, layer1_size * cython.sizeof(REAL_t))  # work to accumulate l1 error
+            memset(_work, 0, max_layer_size * cython.sizeof(REAL_t))  # work to accumulate l1 error
 
             if hs:
                 fast_document_dmc_hs(points[i], codes[i], codelens[i],
@@ -735,15 +804,19 @@ def train_document_dm_concat(model, doc_words, doctag_indexes, alpha, work=None,
             if negative:
                 next_random = fast_document_dmc_neg(negative, cum_table, cum_table_len, next_random,
                                                     _neu1, syn1neg, indexes[i], _alpha, _work,
-                                                   layer1_size, vector_size, _learn_hidden)
+                                                   layer1_size, vector_size, _learn_hidden,
+                                                   num_layers, layer_sizes, inner_layers,
+                                                   max_layer_size, num_hidden_wgts, wgts)
 
             if _learn_doctags:
                 for m in range(doctag_len):
-                    our_saxpy(&vector_size, &_doctag_locks[_doctag_indexes[m]], &_work[m * vector_size],
+                    _ga = _doctag_locks[_doctag_indexes[m]] * _alpha
+                    our_saxpy(&vector_size, &_ga, &_work[m * vector_size],
                               &ONE, &_doctag_vectors[_doctag_indexes[m] * vector_size], &ONE)
             if _learn_words:
                 for m in range(2 * window):
-                    our_saxpy(&vector_size, &_word_locks[window_indexes[m]], &_work[(doctag_len + m) * vector_size],
+                    _ga = _word_locks[window_indexes[m]] * _alpha
+                    our_saxpy(&vector_size, &_ga, &_work[(doctag_len + m) * vector_size],
                               &ONE, &_word_vectors[window_indexes[m] * vector_size], &ONE)
 
     return result
